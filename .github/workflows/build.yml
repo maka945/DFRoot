@@ -55,22 +55,27 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Validate signing config
-        if: github.event_name != 'pull_request'
+      - name: Configure signing
+        env:
+          KEYSTORE_B64: ${{ secrets.KEYSTORE }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          if [ "${{ secrets.KEYSTORE }}" = "" ]; then
-            echo "::error::Signing secrets not configured. KEYSTORE secret is required for release builds."
-            exit 1
+          if [ -n "$KEYSTORE_B64" ]; then
+            printf '%s' "$KEYSTORE_B64" | base64 --decode > keystore.jks
+            printf 'KEYSTORE_FILE=../keystore.jks\nKEYSTORE_PASSWORD=%s\nKEY_ALIAS=%s\nKEY_PASSWORD=%s\n' \
+              "$KEYSTORE_PASSWORD" "$KEY_ALIAS" "$KEY_PASSWORD" > signing.properties
+          else
+            echo "::warning::No KEYSTORE secret set; generating a throwaway keystore."
+            echo "::warning::The resulting APK will NOT update over an official DFRoot install (different signature)."
+            keytool -genkeypair -keystore keystore.jks -storetype JKS \
+              -storepass df-ksu -keypass df-ksu \
+              -alias df-ksu -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=DFRoot"
+            printf 'KEYSTORE_FILE=../keystore.jks\nKEYSTORE_PASSWORD=df-ksu\nKEY_ALIAS=df-ksu\nKEY_PASSWORD=df-ksu\n' \
+              > signing.properties
           fi
-
-      - name: Create signing.properties
-        if: github.event_name != 'pull_request'
-        run: |
-          echo KEYSTORE_FILE=../keystore.jks > signing.properties
-          echo KEYSTORE_PASSWORD=${{ secrets.KEYSTORE_PASSWORD }} >> signing.properties
-          echo KEY_ALIAS=${{ secrets.KEY_ALIAS }} >> signing.properties
-          echo KEY_PASSWORD=${{ secrets.KEY_PASSWORD }} >> signing.properties
-          echo ${{ secrets.KEYSTORE }} | base64 --decode > keystore.jks
 
       - name: Download DF LKMs
         uses: actions/download-artifact@v7
